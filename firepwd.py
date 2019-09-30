@@ -12,14 +12,23 @@ from binascii import hexlify, unhexlify
 import sqlite3
 from base64 import b64decode
 #https://pypi.python.org/pypi/pyasn1/
-from pyasn1.codec.der import decoder
+from pyasn1.codec.der import decoder, encoder
+from pyasn1.type.univ import Sequence, OctetString, ObjectIdentifier
+from pyasn1.type.namedtype import NamedTypes, NamedType
 from hashlib import sha1
 import hmac
 from Crypto.Cipher import DES3
 from Crypto.Util.number import long_to_bytes
+from Cryptodome.Util.Padding import pad, unpad
 from optparse import OptionParser
 import json
+
+class Cypher(Sequence):
+   componentType = NamedTypes(NamedType('oid',ObjectIdentifier()), NamedType('iv',OctetString()))
    
+class LoginData(Sequence):
+   componentType = NamedTypes(NamedType('key_id', OctetString()),NamedType('cypher', Cypher()),NamedType('cypherText', OctetString()))
+
 def getShortLE(d, a):
    return unpack('<H',(d)[a:a+2])[0]
 
@@ -31,7 +40,7 @@ asn1Types = { 0x30: 'SEQUENCE',  4:'OCTETSTRING', 6:'OBJECTIDENTIFIER', 2: 'INTE
 oidValues = { '2a864886f70d010c050103': '1.2.840.113549.1.12.5.1.3',
               '2a864886f70d0307':'1.2.840.113549.3.7',
               '2a864886f70d010101':'1.2.840.113549.1.1.1' }   
-              
+
 def decrypt3DES( globalSalt, masterPassword, entrySalt, encryptedData ):
   #see http://www.drh-consultancy.demon.co.uk/key3.html
   hp = sha1( globalSalt+bytes(masterPassword, "UTF-8")).digest()
@@ -48,9 +57,17 @@ def decrypt3DES( globalSalt, masterPassword, entrySalt, encryptedData ):
   return DES3.new( key, DES3.MODE_CBC, iv).decrypt(encryptedData)
 
 def decodeLoginData(data):
-  asn1data = decoder.decode(b64decode(data)) #first base64 decoding, then ASN1DERdecode
+  asn1data = decoder.decode(data) #first base64 decoding, then ASN1DERdecode
   return asn1data[0][0].asOctets(), asn1data[0][1][1].asOctets(), asn1data[0][2].asOctets() #for login and password, keep :(key_id, iv, ciphertext)
-  
+
+def encodeLoginData(data):
+  loginData = LoginData()
+  loginData['key_id'] = unhexlify('f8000000000000000000000000000001')
+  loginData['cypher']['oid'] = [1,2,840,113549,3,7]
+  loginData['cypher']['iv'] = iv
+  loginData['cypherText'] = des.encrypt(data)
+  return encoder.encode(loginData)
+ 
 def getLoginData():
     logins = []
     loginf = open(options.directory+'logins.json','r').read()
@@ -59,8 +76,8 @@ def getLoginData():
       print('error: no \'logins\' key in logins.json')
       return []
     for row in jsonLogins['logins']:
-      encUsername = row['encryptedUsername']
-      encPassword = row['encryptedPassword']
+      encUsername = b64decode(row['encryptedUsername'])
+      encPassword = b64decode(row['encryptedPassword'])
       logins.append( (encUsername, encPassword, row['hostname']) )
     return logins
 
@@ -181,10 +198,12 @@ else:
   print('decrypting login/password pairs')
 
 for (username, password, site) in logins:
-  print('%20s:' % site, end=' ') #site URL
   key_id, iv, ciphertext = decodeLoginData(username) # username
-  print(depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) ), end=', ')
+  username = depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) )
+  # print("encrypted   password: " + str(hexlify(password)))
   key_id, iv, ciphertext = decodeLoginData(password) # passwd 
-  print(depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) ))
-
+  password = depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) )
+  # des = DES3.new( key, DES3.MODE_CBC, iv)
+  # print("reëncrypted password: " + str(hexlify(encodeLoginData(pad(password,8)))))
+  print('%20s: %s,%s' % (site, username, password)) #site URL
 
