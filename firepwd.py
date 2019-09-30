@@ -22,6 +22,8 @@ from Crypto.Util.number import long_to_bytes
 from Cryptodome.Util.Padding import pad, unpad
 from optparse import OptionParser
 import json
+from logging import debug
+import logging
 
 class Cypher(Sequence):
    componentType = NamedTypes(NamedType('oid',ObjectIdentifier()), NamedType('iv',OctetString()))
@@ -182,13 +184,14 @@ def getKey():
       print('3deskey', hexlify(key))
       return key[:24]
 
-  
+logging.basicConfig(level=logging.DEBUG)
 parser = OptionParser(usage="usage: %prog [options]")
 parser.add_option("-v", "--verbose", type="int", dest="verbose", help="verbose level", default=0)
 parser.add_option("-p", "--password", type="string", dest="masterPassword", help="masterPassword", default='')
 parser.add_option("-d", "--dir", type="string", dest="directory", help="directory", default='')
 (options, args) = parser.parse_args()
-depadding = lambda x: x[0:-x[-1]] if all([i==x[-1] for i in x[-x[-1]:]]) else x
+# this one works, but using unpad from Cryptodome for safety
+#unpad8 = lambda x: x[0:-x[-1]] if all([i==x[-1] for i in x[-x[-1]:]]) else x
 
 key = getKey()
 logins = getLoginData()
@@ -199,11 +202,11 @@ else:
 
 for (username, password, site) in logins:
   key_id, iv, ciphertext = decodeLoginData(username) # username
-  username = depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) )
-  # print("encrypted   password: " + str(hexlify(password)))
+  username = unpad( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext),8)
+  debug("encrypted   password: " + str(hexlify(password)))
   key_id, iv, ciphertext = decodeLoginData(password) # passwd 
-  password = depadding( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext) )
-  # des = DES3.new( key, DES3.MODE_CBC, iv)
-  # print("reëncrypted password: " + str(hexlify(encodeLoginData(pad(password,8)))))
+  des = DES3.new( key, DES3.MODE_CBC, iv)
+  password = unpad( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext),8)
+  debug("reëncrypted password: " + str(hexlify(encodeLoginData(pad(password,8)))))
   print('%20s: %s,%s' % (site, username, password)) #site URL
 
