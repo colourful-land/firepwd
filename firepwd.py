@@ -62,7 +62,7 @@ def decodeLoginData(data):
   asn1data = decoder.decode(data) #first base64 decoding, then ASN1DERdecode
   return asn1data[0][0].asOctets(), asn1data[0][1][1].asOctets(), asn1data[0][2].asOctets() #for login and password, keep :(key_id, iv, ciphertext)
 
-def encodeLoginData(data):
+def encodeLoginData(data, iv, des):
   loginData = LoginData()
   loginData['key_id'] = unhexlify('f8000000000000000000000000000001')
   loginData['cypher']['oid'] = [1,2,840,113549,3,7]
@@ -205,8 +205,10 @@ for (username, password, site) in logins:
   username = unpad( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext),8)
   debug("encrypted   password: " + str(hexlify(password)))
   key_id, iv, ciphertext = decodeLoginData(password) # passwd 
-  des = DES3.new( key, DES3.MODE_CBC, iv)
   password = unpad( DES3.new( key, DES3.MODE_CBC, iv).decrypt(ciphertext),8)
-  debug("reëncrypted password: " + str(hexlify(encodeLoginData(pad(password,8)))))
+  des = DES3.new( key, DES3.MODE_CBC, iv)
+  debug("reëncrypted password: " + str(
+     hexlify(encodeLoginData(pad(password,8), iv, des))))
   print('%20s: %s,%s' % (site, username, password)) #site URL
+
 
